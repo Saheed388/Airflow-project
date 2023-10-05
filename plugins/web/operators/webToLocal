@@ -1,0 +1,84 @@
+import requests
+from airflow.models import BaseOperator
+from airflow.utils.decorators import apply_defaults
+from typing import Any, Optional, Sequence, Union
+import pandas 
+import tempfile
+import os
+from airflow.providers.google.cloud.hooks.gcs import GoogleCloudStorageHook
+
+class WebToLocalAndGCSOperator(BaseOperator):
+    """
+    Custom Apache Airflow Operator to download a web page's content and save it as a CSV file locally.
+    Then upload the CSV file to Google Cloud Storage (GCS) using GCSHook.
+    """
+    template_fields: Sequence[str] = (
+    "endpoint",
+    "service",
+    "destination_path",
+    "destination_bucket",
+    )
+
+    def __init__(
+        self,
+        *,
+        endpoint: str,
+        destination_path: Optional[str] = None,
+        destination_bucket: Optional[str] = None,
+        service: str,
+        gcp_conn_id: str = "google_cloud_default",
+        gzip: bool = False,
+        mime_type: str = "text/csv",
+        delegate_to: Optional[str] = None,
+        impersonation_chain: Optional[Union[str, Sequence[str]]] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+
+        self.endpoint = self._format_endpoint(endpoint, service, destination_path)
+        self.destination_path = self._format_destination_path(destination_path)
+        self.destination_bucket = self._format_bucket_name(destination_bucket)
+        self.service = service
+        self.gcp_conn_id = gcp_conn_id
+        self.gzip = gzip
+        self.mime_type = mime_type
+        self.delegate_to = delegate_to
+        self.impersonation_chain = impersonation_chain
+ # Assign the provided 'endpoint' value
+
+    def execute(self, context):
+        try:
+            # Send an HTTP GET request to the URL
+            response = requests.get(self.url)
+
+            # Check if the request was successful (HTTP status code 200)
+            if response.status_code == 200:
+                # Create a temporary directory
+                with tempfile.TemporaryDirectory() as tmpdirname:
+                    # Write the content to a temporary file
+                    tmp_file_path = os.path.join(tmpdirname, 'downloaded_data.csv')
+                    with open(tmp_file_path, 'wb') as file:
+                        file.write(response.content)
+                    
+                    # Move the temporary file to the specified local file path
+                    os.rename(tmp_file_path, self.local_csv_file_path)
+
+                self.log.info(f"CSV file downloaded and saved as {self.local_csv_file_path}")
+
+                # Upload the file to GCS using GCSHook
+                gcs_hook = GoogleCloudStorageHook(
+                    google_cloud_storage_conn_id=self.gcs_conn_id,
+                    delegate_to=None  # Set this to your desired service account if needed
+                )
+                gcs_hook.upload(
+                    bucket_name=self.gcs_bucket,
+                    object_name=self.gcs_object,
+                    filename=self.local_csv_file_path,
+                )
+                
+                self.log.info(f"CSV file uploaded to GCS bucket: gs://{self.gcs_bucket}/{self.gcs_object}")
+            else:
+                self.log.error(f"Failed to download the CSV file. HTTP status code: {response.status_code}")
+
+        except Exception as e:
+            self.log.error(f"An error occurred: {str(e)}")

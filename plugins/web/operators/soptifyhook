@@ -1,0 +1,126 @@
+
+import os
+import json
+import pandas as pd
+from datetime import datetime, timedelta
+from airflow.models import BaseOperator
+from airflow.utils.decorators import apply_defaults
+from airflow.providers.google.cloud.transfers.local_to_gcs import LocalFilesystemToGCSOperator
+from airflow.providers.http.hooks.http import HttpHook
+from airflow.providers.google.cloud.hooks.gcs import GoogleCloudStorageHook
+
+class SpotifyHook(HttpHook):
+    def __init__(self, spotify_user_id, access_token, refresh_token, base_64):
+        super().__init__(http_conn_id='spotify_conn')
+        self.spotify_user_id = spotify_user_id
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.base_64 = base_64
+
+    def refresh_token(self):
+        endpoint = "https://accounts.spotify.com/api/token"
+        headers = {
+            "Authorization": "Basic " + self.base_64,
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": self.refresh_token
+        }
+        response = self.run(endpoint, data=json.dumps(data), headers=headers, method='POST')
+        response_json = response.json()
+        return response_json.get("access_token")
+
+class SpotifyToGCSTransferOperator(BaseOperator):
+    @apply_defaults
+    def __init__(self, spotify_conn_id, gcs_conn_id, gcs_bucket, gcs_object, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.spotify_conn_id = spotify_conn_id
+        self.gcs_conn_id = gcs_conn_id
+        self.gcs_bucket = gcs_bucket
+        self.gcs_object = gcs_object
+
+    def execute(self, context):
+        spotify_hook = SpotifyHook(
+            http_conn_id=self.spotify_conn_id,
+            spotify_user_id="317vh5rfylkquuanowyyaf6dkikq",
+            access_token="BQDZKGt0c6TQk98q0kuLUqpOTo-b_YYZqln7plmMr64xtiQSksz2TgetG0nbF1qyNjctxKCeXi2mN_XmTMHCR2OTopOGkhmUMlGh0ag-lrC0UUkBr8E8YtzMEHW6zMJ2WMXOFoezHkOVv3WboQEr8DzSa3WpnF50UD-ahJ_eEg0M_VAIuOhpGRnOv3dw3V_Q0sP2FSBtuAw",
+            refresh_token="AQB39breIP87DK-LdzLKN8C2JxlJdkyl92fj02GakpZqhAQL2kMbvDf_sjCbhXHjyWXi5ZJu-sfEQk_wPwW3Vih5_kuMnShBog07ugDXUvMff49Mr1ZW29XxY0h1TCWgRz8",
+            base_64="MmZhNGU4ODJmMzVjNDkxNDg1NjVkOTI2Yzg2M2IyZDY6ZmI5ZGI5ZjE2MWFiNGI1ZDlmZDU3MWYzOTIxMTFmMTg="
+        )
+
+        spotify_token = spotify_hook.refresh_token()
+
+        def get_recently_played(self):
+        # Convert time to Unix timestamp in milliseconds
+        today = datetime.now()
+        past_7_days = today - timedelta(days=8)
+        print(int(past_7_days.timestamp()))
+        past_7_days_unix_timestamp = int(past_7_days.timestamp()) * 1000
+        # Download all songs you've listened to "after yesterday," which means in the last 24 hours
+        endpoint = "https://api.spotify.com/v1/me/player/recently-played?after={time}".format(
+            time=past_7_days_unix_timestamp)
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer {}".format(self.spotify_token)
+        }
+        r = requests.get(endpoint, headers=headers, params={"limit": 50})
+        if r.status_code not in range(200, 299):
+            return {}
+        print(r.json())
+        return r.json()
+
+    def call_refresh(self):
+        print("Refreshing token")
+        refreshCaller = Refresh()
+        self.spotify_token = refreshCaller.refresh()
+        # self.get_recently_played()
+
+a = SaveSongs()
+a.call_refresh()
+
+data = a.get_recently_played()
+
+song_names = []
+artist_names = []
+featured_artists = []
+played_at_list = []
+timestmps = []
+popularity = []
+album_or_single = []
+
+# Extracting only the relevant bits of data from the JSON object
+for song in data["items"]:
+    song_names.append(song["track"]["name"])
+    artist_names.append(song["track"]["album"]["artists"][0]["name"])
+    featured_artists.append([artist["name"] for artist in song["track"]["artists"][1:]])
+    played_at_list.append(song["played_at"])
+    timestmps.append(song["played_at"][0:10])
+    popularity.append(song["track"]["popularity"])
+    album_or_single.append(song["track"]["album"]["album_type"])
+
+# Prepare a dictionary in order to turn it into a pandas DataFrame below
+song_dict = {
+    "song_name": song_names,
+    "artist_name": artist_names,
+    "featured_artists": featured_artists,
+    "played_at": played_at_list,
+    "timestamp": timestmps,
+    "popularity": popularity,
+    "album_or_single": album_or_single
+}
+
+song_df = pd.DataFrame(song_dict, columns=["song_name", "artist_name", "featured_artists",
+                                           "played_at", "timestamp", "popularity", "album_or_single"])
+print(song_df)
+
+csv_filename = "spotify_songs_data.csv"
+song_df.to_csv(csv_filename, index=False)
+
+
+        # Upload the CSV file to GCS
+        gcs_hook = GoogleCloudStorageHook(google_cloud_storage_conn_id=self.gcs_conn_id)
+        local_file_path = "local_path_to_your_csv_file.csv"
+        gcs_hook.upload(bucket_name=self.gcs_bucket, object_name=self.gcs_object, filename=local_file_path)
+
+# Define your DAG and tasks here

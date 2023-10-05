@@ -1,0 +1,66 @@
+import os
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.operators.dummy import DummyOperator
+from web.operators.webToGcs_hook import WebToGCSHKOperator
+# Define your default arguments, schedule interval, etc.
+
+# Define task parameters
+# url = "https://github.com/Saheed388/Africa_dgp_project/blob/main/gdp_data.csv" 
+local_csv_file_path = "/c/Users/HP/Documents/Airflow-gcp"  # Provide your local file path
+gcs_conn_id = "google_cloud_default"  # Provide your GCS connection ID
+gcs_bucket = "alt_new_bucket"  # Provide your GCS bucket name
+gcs_object = "gdp_data.csv"  # Provide your GCS object name
+service = str # Replace with your service name or value
+endpoint = "https://github.com/Saheed388/Africa_dgp_project/blob/main/gdp_data.csv"  # Replace with the actual endpoint value
+
+# Create tasks
+
+
+  # Import your custom operator
+
+# Define your default arguments, schedule interval, etc.
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'start_date': datetime(2021, 1, 1),
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+# Create your DAG function
+def create_web_to_local_and_gcs_dag(dag_id, schedule_interval, endpoint, destination_path, destination_bucket, service, gcp_conn_id):
+    dag = DAG(
+        dag_id=dag_id,
+        default_args=default_args,
+        description='Download web content and upload to GCS DAG',
+        schedule_interval=schedule_interval,
+        catchup=False,
+    )
+
+    # Define task parameters
+    download_and_upload_task = WebToLocalAndGCSOperator(
+        task_id='download_and_upload',
+        endpoint=endpoint,
+        destination_path=destination_path,
+        destination_bucket=gcs_bucket,
+        service=service,
+        gcp_conn_id=gcp_conn_id,
+        dag=dag,
+    )
+
+    # Set task dependencies
+    download_and_upload_task
+
+    return dag
+
+# Usage example
+web_to_local_and_gcs_dag = create_web_to_local_and_gcs_dag(
+    dag_id='web_to_local_and_gcs_dag',
+    schedule_interval=None,  # Define your schedule interval here
+    endpoint='https://example.com',  # Replace with your desired endpoint
+    destination_path='/tmp',
+    destination_bucket='your_gcs_bucket',
+    service='your_service_name',
+    gcp_conn_id='google_cloud_default',
+)
